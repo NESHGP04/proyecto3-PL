@@ -1,25 +1,289 @@
 """Corre las versiones REPETICIONES veces por cada tamaño y guarda los tiempos en CSV.
 
-Responsables: Marinés (--modo seq) y Carlos (--modo cuda)
+Responsables: Marinés (--modo seq y --modo graficas) y Carlos (--modo cuda)
 
 Uso (desde la raíz del repo, en Colab):
     python -m benchmarks.run_benchmarks --modo seq
     python -m benchmarks.run_benchmarks --modo cuda
-    python -m benchmarks.run_benchmarks --modo graficas   # tabla + speedup por fase
+    python -m benchmarks.run_benchmarks --modo graficas
 
-Salida: resultados/tiempos_secuencial.csv, resultados/tiempos_cuda.csv
-Columnas: modo, n, corrida, preparacion, h2d, ordenamiento, histograma, d2h, escritura, total
-En modo cuda, la corrida 0 es warm-up (compilación JIT): se guarda, pero no entra al promedio.
+    # pruebas rápidas:
+    python -m benchmarks.run_benchmarks --modo seq --tamanos 10000 --repeticiones 3
+
+Salidas:
+    resultados/tiempos_<modo>.csv    una fila por corrida
+    resultados/resumen_<modo>.csv    promedio y desviación estándar por N y fase
+    resultados/entorno_<modo>.json   máquina donde se midió (CPU, Python, GPU)
+    informe/figuras/*.png            gráficas (--modo graficas)
+
+Columnas de tiempos_<modo>.csv:
+    modo, n, corrida, warmup, preparacion, h2d, ordenamiento, histograma, d2h, escritura, total
+
+En ambos modos, la corrida 0 de cada N es warm-up y se guarda con warmup=1,
+pero no entra al promedio:
+  - cuda: compilación JIT de Numba y creación del contexto de la GPU
+  - seq:  primera importación de matplotlib y cachés frías (en la primera
+          prueba local la escritura tardó 0.27 s contra 0.06 s en las demás)
+Así las dos versiones se comparan en las mismas condiciones.
 """
 
 import argparse
+import csv
+import gc
+import json
+import os
+import platform
+import statistics
+import time
+
+from comun.config import FASES, REPETICIONES, TAMANOS
+
+CARPETA_RESULTADOS = "resultados"
+CARPETA_FIGURAS = os.path.join("informe", "figuras")
+NOMBRES = {"seq": "secuencial", "cuda": "cuda"}
+COLUMNAS = ["modo", "n", "corrida", "warmup"] + FASES
+ETIQUETAS_FASES = {
+    "preparacion": "Preparación",
+    "h2d": "Transferencia H→D",
+    "ordenamiento": "Ordenamiento",
+    "histograma": "Histograma",
+    "d2h": "Transferencia D→H",
+    "escritura": "Escritura",
+    "total": "Total",
+}
+
+
+# ---------------------------------------------------------------- medición
+
+
+def obtener_ejecutar(modo):
+    """Importa la función ejecutar() de la versión pedida (import tardío:
+    el modo seq no necesita Numba ni GPU)."""
+    if modo == "seq":
+        from secuencial.histograma_seq import ejecutar
+    else:
+        from paralelo.histograma_cuda import ejecutar
+    return ejecutar
+
+
+def info_entorno(modo):
+    """Datos de la máquina, para documentar las condiciones de la medición."""
+    info = {
+        "fecha": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "modo": modo,
+        "python": platform.python_version(),
+        "sistema": platform.platform(),
+        "procesador": platform.processor() or platform.machine(),
+        "nucleos_logicos": os.cpu_count(),
+    }
+    try:
+        import psutil
+
+        info["nucleos_fisicos"] = psutil.cpu_count(logical=False)
+        info["ram_gb"] = round(psutil.virtual_memory().total / 1e9, 1)
+    except ImportError:
+        pass
+    if modo == "cuda":
+        try:
+            from numba import cuda
+
+            dispositivo = cuda.get_current_device()
+            info["gpu"] = dispositivo.name.decode() if isinstance(dispositivo.name, bytes) else dispositivo.name
+            info["compute_capability"] = ".".join(map(str, dispositivo.compute_capability))
+        except Exception as e:  # noqa: BLE001  (solo informativo)
+            info["gpu"] = f"no detectada: {e}"
+    return info
+
+
+def medir(modo, tamanos, repeticiones):
+    """Corre ejecutar() repeticiones veces por cada N y guarda las filas."""
+    ejecutar = obtener_ejecutar(modo)
+    nombre = NOMBRES[modo]
+    carpeta_salida = os.path.join(CARPETA_RESULTADOS, f"salida_{nombre}")
+    os.makedirs(CARPETA_RESULTADOS, exist_ok=True)
+
+    with open(os.path.join(CARPETA_RESULTADOS, f"entorno_{nombre}.json"), "w") as f:
+        json.dump(info_entorno(modo), f, indent=2, ensure_ascii=False)
+
+    filas = []
+    for n in tamanos:
+        # Corrida extra (la 0) como warm-up; no entra al promedio
+        for corrida in range(repeticiones + 1):
+            warmup = int(corrida == 0)
+            gc.collect()  # que la basura de la corrida anterior no ensucie esta
+            _, hist, tiempos = ejecutar(n, escribir_archivos=True, carpeta_salida=carpeta_salida)
+            assert int(hist.sum()) == n, f"histograma inválido en N={n}, corrida {corrida}"
+
+            filas.append({"modo": modo, "n": n, "corrida": corrida, "warmup": warmup, **tiempos})
+            etiqueta = " (warm-up)" if warmup else ""
+            print(f"  N={n:>10,}  corrida {corrida:>2}  total {tiempos['total']:8.4f} s{etiqueta}")
+
+    ruta = os.path.join(CARPETA_RESULTADOS, f"tiempos_{nombre}.csv")
+    with open(ruta, "w", newline="") as f:
+        escritor = csv.DictWriter(f, fieldnames=COLUMNAS)
+        escritor.writeheader()
+        escritor.writerows(filas)
+    print(f"\nTiempos guardados en {ruta}")
+
+    resumen = resumir(filas)
+    guardar_resumen(resumen, nombre)
+    imprimir_resumen(resumen, nombre)
+
+
+# ---------------------------------------------------------------- resumen
+
+
+def resumir(filas):
+    """Promedio y desviación estándar por N y fase, sin contar los warm-up."""
+    resumen = []
+    for n in sorted({f["n"] for f in filas}):
+        validas = [f for f in filas if f["n"] == n and not f["warmup"]]
+        fila = {"n": n, "repeticiones": len(validas)}
+        for fase in FASES:
+            valores = [float(f[fase]) for f in validas]
+            fila[f"{fase}_prom"] = statistics.mean(valores)
+            fila[f"{fase}_desv"] = statistics.stdev(valores) if len(valores) > 1 else 0.0
+        resumen.append(fila)
+    return resumen
+
+
+def guardar_resumen(resumen, nombre):
+    ruta = os.path.join(CARPETA_RESULTADOS, f"resumen_{nombre}.csv")
+    with open(ruta, "w", newline="") as f:
+        escritor = csv.DictWriter(f, fieldnames=list(resumen[0]))
+        escritor.writeheader()
+        escritor.writerows(resumen)
+    print(f"Resumen guardado en {ruta}")
+
+
+def imprimir_resumen(resumen, nombre):
+    print(f"\nPromedios versión {nombre} (segundos, ± desviación estándar)")
+    for fila in resumen:
+        print(f"\nN = {fila['n']:,}  ({fila['repeticiones']} corridas)")
+        for fase in FASES:
+            prom, desv = fila[f"{fase}_prom"], fila[f"{fase}_desv"]
+            if prom > 0:
+                print(f"  {fase:<13} {prom:9.4f} ± {desv:.4f}")
+
+
+def leer_tiempos(nombre):
+    """Lee resultados/tiempos_<nombre>.csv como lista de dicts con números."""
+    ruta = os.path.join(CARPETA_RESULTADOS, f"tiempos_{nombre}.csv")
+    if not os.path.exists(ruta):
+        return None
+    with open(ruta) as f:
+        filas = list(csv.DictReader(f))
+    for fila in filas:
+        fila["n"] = int(fila["n"])
+        fila["corrida"] = int(fila["corrida"])
+        fila["warmup"] = int(fila["warmup"])
+        for fase in FASES:
+            fila[fase] = float(fila[fase])
+    return filas
+
+
+# ---------------------------------------------------------------- gráficas
+
+
+def graficas():
+    """Genera las figuras del informe a partir de los CSV de tiempos."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
+
+    os.makedirs(CARPETA_FIGURAS, exist_ok=True)
+    seq = leer_tiempos("secuencial")
+    if seq is None:
+        print("No existe resultados/tiempos_secuencial.csv: corre primero --modo seq")
+        return
+
+    resumen = resumir(seq)
+    etiquetas = [f"{f['n']:,}" for f in resumen]
+    fases = ["preparacion", "ordenamiento", "histograma", "escritura"]
+    colores = ["#8E8E93", "#2E86DE", "#F39C12", "#27AE60"]
+
+    # 1) Tiempo promedio por fase, apilado por tamaño
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    base = [0.0] * len(resumen)
+    for fase, color in zip(fases, colores):
+        valores = [f[f"{fase}_prom"] for f in resumen]
+        ax.bar(etiquetas, valores, bottom=base, color=color, label=ETIQUETAS_FASES[fase])
+        base = [b + v for b, v in zip(base, valores)]
+    for x, total in enumerate(base):
+        ax.annotate(f"{total:.3f} s", (x, total), ha="center", va="bottom", fontsize=9)
+    ax.set_title("Versión secuencial: tiempo promedio por fase")
+    ax.set_xlabel("N (cantidad de temperaturas)")
+    ax.set_ylabel("Tiempo (s)")
+    ax.legend()
+    ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(os.path.join(CARPETA_FIGURAS, "seq_tiempo_por_fase.png"), dpi=120)
+    plt.close(fig)
+
+    # 2) Porcentaje del tiempo total por fase (qué conviene paralelizar)
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    base = [0.0] * len(resumen)
+    for fase, color in zip(fases, colores):
+        valores = [100 * f[f"{fase}_prom"] / f["total_prom"] for f in resumen]
+        ax.bar(etiquetas, valores, bottom=base, color=color, label=ETIQUETAS_FASES[fase])
+        for x, (b, v) in enumerate(zip(base, valores)):
+            if v >= 4:
+                ax.text(x, b + v / 2, f"{v:.0f} %", ha="center", va="center", color="white", fontsize=9)
+        base = [b + v for b, v in zip(base, valores)]
+    ax.set_title("Versión secuencial: proporción del tiempo total por fase")
+    ax.set_xlabel("N (cantidad de temperaturas)")
+    ax.set_ylabel("% del tiempo total")
+    ax.set_ylim(0, 100)
+    ax.legend(loc="lower right")
+    fig.tight_layout()
+    fig.savefig(os.path.join(CARPETA_FIGURAS, "seq_porcentaje_por_fase.png"), dpi=120)
+    plt.close(fig)
+
+    # 3) Variabilidad entre corridas del tiempo total (confiabilidad)
+    tamanos = [f["n"] for f in resumen]
+    fig, axes = plt.subplots(1, len(tamanos), figsize=(max(6, 4 * len(tamanos)), 4.5))
+    if len(tamanos) == 1:
+        axes = [axes]
+    for ax, n in zip(axes, tamanos):
+        filas = [f for f in seq if f["n"] == n and not f["warmup"]]
+        # La corrida 0 es el warm-up, así que las válidas ya van de 1 a REPETICIONES
+        ax.plot([f["corrida"] for f in filas], [f["total"] for f in filas], "o-", color="#2E86DE")
+        prom = statistics.mean(f["total"] for f in filas)
+        ax.axhline(prom, color="#E74C3C", linestyle="--", label=f"promedio {prom:.3f} s")
+        ax.set_title(f"N = {n:,}")
+        ax.set_xlabel("Corrida")
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_ylabel("Tiempo total (s)")
+        ax.legend(fontsize=8)
+        ax.grid(alpha=0.3)
+    fig.suptitle("Versión secuencial: tiempo total en cada corrida")
+    fig.tight_layout()
+    fig.savefig(os.path.join(CARPETA_FIGURAS, "seq_variabilidad.png"), dpi=120)
+    plt.close(fig)
+
+    print(f"Figuras de la versión secuencial guardadas en {CARPETA_FIGURAS}/")
+
+    if leer_tiempos("cuda") is None:
+        print("Aún no existe resultados/tiempos_cuda.csv: la comparación y el speedup se generan cuando esté.")
+
+
+# ---------------------------------------------------------------- main
 
 
 def main():
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(description="Benchmarks del Proyecto 3")
     p.add_argument("--modo", choices=["seq", "cuda", "graficas"], required=True)
+    p.add_argument("--tamanos", type=int, nargs="+", default=TAMANOS, help="valores de N")
+    p.add_argument("--repeticiones", type=int, default=REPETICIONES)
     args = p.parse_args()
-    raise NotImplementedError(f"TODO modo {args.modo}")
+
+    if args.modo == "graficas":
+        graficas()
+    else:
+        print(f"Benchmark modo {args.modo}: N = {args.tamanos}, {args.repeticiones} repeticiones\n")
+        medir(args.modo, args.tamanos, args.repeticiones)
 
 
 if __name__ == "__main__":
