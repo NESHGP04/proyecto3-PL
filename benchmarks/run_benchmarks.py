@@ -143,6 +143,7 @@ def resumir(filas):
             valores = [float(f[fase]) for f in validas]
             fila[f"{fase}_prom"] = statistics.mean(valores)
             fila[f"{fase}_desv"] = statistics.stdev(valores) if len(valores) > 1 else 0.0
+            fila[f"{fase}_mediana"] = statistics.median(valores)
         resumen.append(fila)
     return resumen
 
@@ -182,6 +183,36 @@ def leer_tiempos(nombre):
     return filas
 
 
+def tabla_markdown(resumen, fases=("preparacion", "ordenamiento", "histograma", "escritura", "total")):
+    """Tablas en Markdown para pegar en el informe:
+    1) promedio ± desviación estándar por fase
+    2) % del tiempo total y coeficiente de variación del total."""
+    lineas = [
+        "| N | " + " | ".join(ETIQUETAS_FASES[f] + " (s)" for f in fases) + " |",
+        "|---|" + "---|" * len(fases),
+    ]
+    for fila in resumen:
+        celdas = [f"{fila[f'{f}_prom']:.4f} ± {fila[f'{f}_desv']:.4f}" for f in fases]
+        lineas.append(f"| {fila['n']:,} | " + " | ".join(celdas) + " |")
+
+    parciales = [f for f in fases if f != "total"]
+    lineas += [
+        "",
+        "| N | " + " | ".join(f"% {ETIQUETAS_FASES[f]}" for f in parciales)
+        + " | Mediana del total (s) | CV del total | Corridas |",
+        "|---|" + "---|" * (len(parciales) + 3),
+    ]
+    for fila in resumen:
+        total = fila["total_prom"]
+        porcentajes = [f"{100 * fila[f'{f}_prom'] / total:.1f} %" for f in parciales]
+        cv = 100 * fila["total_desv"] / total
+        lineas.append(
+            f"| {fila['n']:,} | " + " | ".join(porcentajes)
+            + f" | {fila['total_mediana']:.4f} | {cv:.1f} % | {fila['repeticiones']} |"
+        )
+    return "\n".join(lineas) + "\n"
+
+
 # ---------------------------------------------------------------- gráficas
 
 
@@ -199,7 +230,10 @@ def graficas():
         print("No existe resultados/tiempos_secuencial.csv: corre primero --modo seq")
         return
 
+    # Se recalcula el resumen desde los tiempos crudos, así siempre
+    # corresponde a la versión actual de resumir()
     resumen = resumir(seq)
+    guardar_resumen(resumen, "secuencial")
     etiquetas = [f"{f['n']:,}" for f in resumen]
     fases = ["preparacion", "ordenamiento", "histograma", "escritura"]
     colores = ["#8E8E93", "#2E86DE", "#F39C12", "#27AE60"]
@@ -264,6 +298,11 @@ def graficas():
     plt.close(fig)
 
     print(f"Figuras de la versión secuencial guardadas en {CARPETA_FIGURAS}/")
+
+    ruta_tabla = os.path.join(CARPETA_RESULTADOS, "tabla_secuencial.md")
+    with open(ruta_tabla, "w") as f:
+        f.write(tabla_markdown(resumen))
+    print(f"Tabla para el informe guardada en {ruta_tabla}")
 
     if leer_tiempos("cuda") is None:
         print("Aún no existe resultados/tiempos_cuda.csv: la comparación y el speedup se generan cuando esté.")
