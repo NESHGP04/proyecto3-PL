@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+.venv/
+
+# Salidas grandes que se regeneran (los CSV de tiempos SÍ se suben)
+resultados/temperaturas_ordenadas.csv
+original_c/histograma
