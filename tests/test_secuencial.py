@@ -4,13 +4,15 @@ Uso, desde la raíz del repo:
     python -m tests.test_secuencial
 """
 
+import os
+import tempfile
 import time
 
 import numpy as np
 
-from comun.config import CUBETAS
+from comun.config import CUBETAS, FASES
 from comun.datos import generar_secuencial
-from secuencial.histograma_seq import histograma, limites, ordenar
+from secuencial.histograma_seq import ejecutar, histograma, limites, ordenar
 
 
 def referencia_histograma(ordenado):
@@ -69,6 +71,35 @@ def prueba_histograma_aleatorio(n):
     print(f"  ok  histograma N={n:,} (suma = N, coincide con la fórmula de la GPU)")
 
 
+def prueba_ejecutar(n):
+    with tempfile.TemporaryDirectory() as carpeta:
+        ordenado, h, tiempos = ejecutar(n, escribir_archivos=True, carpeta_salida=carpeta)
+
+        assert list(tiempos) == FASES, tiempos.keys()
+        assert tiempos["h2d"] == 0.0 and tiempos["d2h"] == 0.0
+        assert all(tiempos[f] > 0 for f in ("preparacion", "ordenamiento", "histograma", "escritura"))
+        suma_fases = sum(v for k, v in tiempos.items() if k != "total")
+        assert suma_fases <= tiempos["total"], "el total debe cubrir todas las fases"
+
+        # Mismos datos que la generación compartida
+        assert np.array_equal(ordenado, np.sort(generar_secuencial(n)))
+        assert h.sum() == n
+
+        with open(os.path.join(carpeta, "temperaturas_ordenadas.csv")) as f:
+            lineas = f.read().splitlines()
+        assert lineas[0] == "Indice,Temperatura"
+        assert len(lineas) == n + 1
+        assert lineas[1] == f"0,{ordenado[0]:.2f}"
+
+        with open(os.path.join(carpeta, "histograma.dat")) as f:
+            dat = f.read().splitlines()
+        assert len(dat) == CUBETAS
+        assert sum(int(linea.split()[1]) for linea in dat) == n
+
+        assert os.path.getsize(os.path.join(carpeta, "histograma.png")) > 0
+    print(f"  ok  ejecutar N={n:,} (tiempos por fase + CSV, .dat y .png)")
+
+
 def vista_previa_tiempo(n):
     datos = generar_secuencial(n)
     t0 = time.perf_counter()
@@ -85,5 +116,6 @@ if __name__ == "__main__":
     prueba_histograma_casos_borde()
     for n in (10_000, 100_000):
         prueba_histograma_aleatorio(n)
+    prueba_ejecutar(10_000)
     vista_previa_tiempo(1_000_000)
     print("Todo OK")

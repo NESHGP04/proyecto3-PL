@@ -8,10 +8,15 @@ Es la línea base para calcular el speedup. Todo corre en un solo núcleo:
 
 """
 
+import os
+import time
+
 import numpy as np
 
-from comun.config import CUBETAS
-from comun.datos import generar_secuencial  # noqa: F401  (se usa en ejecutar)
+from comun.config import CUBETAS, FASES
+from comun.datos import generar_secuencial
+
+CARPETA_SALIDA = os.path.join("resultados", "salida_secuencial")
 
 
 def merge(arreglo, aux, izq, centro, der):
@@ -137,13 +142,87 @@ def histograma(ordenado):
     return np.array(hist, dtype=np.int32)
 
 
-def ejecutar(n, escribir_archivos=True, carpeta_salida="resultados"):
+def escribir_csv(ordenado, ruta):
+    """temperaturas_ordenadas.csv, mismo formato que el C: "Indice,Temperatura"."""
+    with open(ruta, "w") as f:
+        f.write("Indice,Temperatura\n")
+        for i, x in enumerate(ordenado.tolist()):
+            f.write(f"{i},{x:.2f}\n")
+
+
+def escribir_dat(ordenado, hist, ruta):
+    """histograma.dat, mismo formato que el C: "<inicio de cubeta> <frecuencia>"."""
+    minimo, _, ancho = limites(ordenado)
+    with open(ruta, "w") as f:
+        for c in range(CUBETAS):
+            f.write(f"{minimo + c * ancho:.2f} {int(hist[c])}\n")
+
+
+def graficar(ordenado, hist, ruta):
+    """histograma.png. Reemplaza la llamada a gnuplot del C con matplotlib."""
+    import matplotlib
+
+    matplotlib.use("Agg")  # sin ventana: funciona en Colab y en terminal
+    import matplotlib.pyplot as plt
+
+    minimo, _, ancho = limites(ordenado)
+    inicios = [minimo + c * ancho for c in range(CUBETAS)]
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    ax.bar(inicios, hist, width=ancho * 0.9, align="edge", color="#2E86DE", label="Frecuencia")
+    ax.set_title("Histograma de Temperaturas")
+    ax.set_xlabel("Temperatura (°C)")
+    ax.set_ylabel("Frecuencia")
+    ax.set_xlim(-100, 100)
+    ax.set_xticks(range(-100, 101, 20))
+    ax.grid(axis="y", alpha=0.4)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(ruta, dpi=100)
+    plt.close(fig)
+
+
+def escribir_resultados(ordenado, hist, carpeta_salida):
+    """F6: escribe los 3 archivos de salida en un solo hilo."""
+    os.makedirs(carpeta_salida, exist_ok=True)
+    escribir_csv(ordenado, os.path.join(carpeta_salida, "temperaturas_ordenadas.csv"))
+    escribir_dat(ordenado, hist, os.path.join(carpeta_salida, "histograma.dat"))
+    graficar(ordenado, hist, os.path.join(carpeta_salida, "histograma.png"))
+
+
+def ejecutar(n, escribir_archivos=True, carpeta_salida=CARPETA_SALIDA):
     """Corre el pipeline completo y devuelve (ordenado, hist, tiempos).
 
-    `tiempos` es un dict con las llaves de comun.config.FASES
-    (h2d y d2h valen 0.0 en esta versión). Medir con time.perf_counter().
+    `tiempos` es un dict con las llaves de comun.config.FASES, en segundos.
+    h2d y d2h valen 0.0 porque esta versión no usa GPU; se dejan para que
+    la tabla de tiempos tenga las mismas columnas que la versión CUDA.
     """
-    raise NotImplementedError("TODO Marinés")
+    tiempos = dict.fromkeys(FASES, 0.0)
+    inicio = time.perf_counter()
+
+    # F1: preparación de datos
+    t = time.perf_counter()
+    datos = generar_secuencial(n)
+    tiempos["preparacion"] = time.perf_counter() - t
+
+    # F3: ordenamiento (MergeSort recursivo)
+    t = time.perf_counter()
+    ordenado = ordenar(datos)
+    tiempos["ordenamiento"] = time.perf_counter() - t
+
+    # F4: histograma (recorrido de cubetas)
+    t = time.perf_counter()
+    hist = histograma(ordenado)
+    tiempos["histograma"] = time.perf_counter() - t
+
+    # F6: escritura de archivos
+    if escribir_archivos:
+        t = time.perf_counter()
+        escribir_resultados(ordenado, hist, carpeta_salida)
+        tiempos["escritura"] = time.perf_counter() - t
+
+    tiempos["total"] = time.perf_counter() - inicio
+    return ordenado, hist, tiempos
 
 
 if __name__ == "__main__":
@@ -152,4 +231,8 @@ if __name__ == "__main__":
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 1_000_000
     _, hist, tiempos = ejecutar(n)
     assert hist.sum() == n and len(hist) == CUBETAS
-    print(tiempos)
+
+    print(f"Versión secuencial, N = {n:,}")
+    for fase in FASES:
+        print(f"  {fase:<13} {tiempos[fase]:9.4f} s")
+    print(f"Archivos en {CARPETA_SALIDA}/")
