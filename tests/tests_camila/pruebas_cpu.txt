@@ -1,0 +1,41 @@
+test_archivos_ordenados_y_frecuencias (__main__.PruebasCPU.test_archivos_ordenados_y_frecuencias) ... ok
+test_archivos_vacios_y_constantes (__main__.PruebasCPU.test_archivos_vacios_y_constantes) ... ok
+test_argumentos_invalidos (__main__.PruebasCPU.test_argumentos_invalidos) ... ok
+test_mismos_datos_distintos_procesos (__main__.PruebasCPU.test_mismos_datos_distintos_procesos) ... ok
+test_preparacion_vacia (__main__.PruebasCPU.test_preparacion_vacia) ... ok
+test_rechazar_histograma_invalido (__main__.PruebasCPU.test_rechazar_histograma_invalido) ... ok
+setUpClass (__main__.PruebasCUDA) ... skipped 'Numba no está instalado; ejecutar en Colab'
+
+----------------------------------------------------------------------
+Ran 6 tests in 3.638s
+
+OK (skipped=1)
+
+
+!python -m tests.tests_camila.test_camila > tests/tests_camila/pruebas_cpu.txt 2>&1
+!cat tests/tests_camila/pruebas_cpu.txt
+test_archivos_ordenados_y_frecuencias (__main__.PruebasCPU.test_archivos_ordenados_y_frecuencias) ... ok
+test_archivos_vacios_y_constantes (__main__.PruebasCPU.test_archivos_vacios_y_constantes) ... ok
+test_argumentos_invalidos (__main__.PruebasCPU.test_argumentos_invalidos) ... ok
+test_mismos_datos_distintos_procesos (__main__.PruebasCPU.test_mismos_datos_distintos_procesos) ... ok
+test_preparacion_vacia (__main__.PruebasCPU.test_preparacion_vacia) ... ok
+test_rechazar_histograma_invalido (__main__.PruebasCPU.test_rechazar_histograma_invalido) ... ok
+test_casos_limite_y_fronteras (__main__.PruebasCUDA.test_casos_limite_y_fronteras) ... /usr/local/lib/python3.13/dist-packages/numba_cuda/numba/cuda/dispatcher.py:716: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(errors.NumbaPerformanceWarning(msg))
+/usr/local/lib/python3.13/dist-packages/numba_cuda/numba/cuda/dispatcher.py:716: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(errors.NumbaPerformanceWarning(msg))
+/usr/local/lib/python3.13/dist-packages/numba_cuda/numba/cuda/dispatcher.py:716: NumbaPerformanceWarning: Grid size 2 will likely result in GPU under-utilization due to low occupancy.
+  warn(errors.NumbaPerformanceWarning(msg))
+ok
+test_comparacion_con_secuencial_del_equipo (__main__.PruebasCUDA.test_comparacion_con_secuencial_del_equipo) ... /usr/local/lib/python3.13/dist-packages/numba_cuda/numba/cuda/dispatcher.py:716: NumbaPerformanceWarning: Grid size 3 will likely result in GPU under-utilization due to low occupancy.
+  warn(errors.NumbaPerformanceWarning(msg))
+skipped 'La función secuencial del equipo todavía está pendiente'
+test_datos_reales_y_reinicializacion (__main__.PruebasCUDA.test_datos_reales_y_reinicializacion) ... /usr/local/lib/python3.13/dist-packages/numba_cuda/numba/cuda/dispatcher.py:716: NumbaPerformanceWarning: Grid size 5 will likely result in GPU under-utilization due to low occupancy.
+  warn(errors.NumbaPerformanceWarning(msg))
+ok
+test_grid_stride_y_bloque_menor_que_100 (__main__.PruebasCUDA.test_grid_stride_y_bloque_menor_que_100) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 6.783s
+
+OK (skipped=1)
