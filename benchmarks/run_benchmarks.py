@@ -16,6 +16,10 @@ Salidas:
     resultados/entorno_<modo>.json   máquina donde se midió (CPU, Python, GPU)
     informe/figuras/*.png            gráficas (--modo graficas)
 
+Si existen los dos CSV, --modo graficas también genera la comparación (Paso 6):
+    resultados/speedup.csv, resultados/tabla_comparativa.md,
+    informe/figuras/comparativa_total.png, speedup_por_fase.png, cuda_porcentaje_por_fase.png
+
 Columnas de tiempos_<modo>.csv:
     modo, n, corrida, warmup, preparacion, h2d, ordenamiento, histograma, d2h, escritura, total
 
@@ -304,8 +308,189 @@ def graficas():
         f.write(tabla_markdown(resumen))
     print(f"Tabla para el informe guardada en {ruta_tabla}")
 
-    if leer_tiempos("cuda") is None:
+    cuda = leer_tiempos("cuda")
+    if cuda is None:
         print("Aún no existe resultados/tiempos_cuda.csv: la comparación y el speedup se generan cuando esté.")
+        return
+    comparar(resumen, resumir(cuda), plt)
+
+
+# ---------------------------------------------------------------- comparación (Paso 6)
+
+# Filas de la tabla de speedup: (etiqueta, fases secuenciales, fases CUDA).
+# El speedup de cada fila es  suma(tiempos seq) / suma(tiempos cuda).
+FILAS_SPEEDUP = [
+    ("Preparación (CPU)", ["preparacion"], ["preparacion"]),
+    ("Ordenamiento (kernel)", ["ordenamiento"], ["ordenamiento"]),
+    ("Histograma (kernel)", ["histograma"], ["histograma"]),
+    ("Cálculo GPU + transferencias", ["ordenamiento", "histograma"], ["h2d", "ordenamiento", "histograma", "d2h"]),
+    ("Escritura (CPU)", ["escritura"], ["escritura"]),
+    ("Total", ["total"], ["total"]),
+]
+LIMITE_AMDAHL = "Límite de Amdahl (GPU en 0 s)"
+
+
+def calcular_speedup(res_seq, res_cuda):
+    """Devuelve una lista de filas {n, fase, seq, cuda, speedup} por cada N común.
+
+    También agrega el límite de Amdahl del pipeline: el speedup que se tendría
+    si la parte en GPU (transferencias + kernels) tardara 0 s y solo quedaran
+    las fases de CPU que se midieron en la versión paralela:
+        S_max = total_seq / (preparacion_cuda + escritura_cuda)
+    Ningún kernel más rápido puede superar ese valor.
+    """
+    por_n_cuda = {f["n"]: f for f in res_cuda}
+    filas = []
+    for s in res_seq:
+        c = por_n_cuda.get(s["n"])
+        if c is None:
+            continue
+        for etiqueta, fases_s, fases_c in FILAS_SPEEDUP:
+            t_s = sum(s[f"{f}_prom"] for f in fases_s)
+            t_c = sum(c[f"{f}_prom"] for f in fases_c)
+            filas.append({"n": s["n"], "fase": etiqueta, "seq": t_s, "cuda": t_c,
+                          "speedup": t_s / t_c if t_c > 0 else float("nan")})
+        solo_cpu = c["preparacion_prom"] + c["escritura_prom"]
+        filas.append({"n": s["n"], "fase": LIMITE_AMDAHL, "seq": s["total_prom"],
+                      "cuda": solo_cpu, "speedup": s["total_prom"] / solo_cpu if solo_cpu > 0 else float("nan")})
+    return filas
+
+
+def tabla_comparativa_markdown(filas, res_cuda):
+    lineas = []
+    for n in sorted({f["n"] for f in filas}):
+        lineas += [
+            f"**N = {n:,}**",
+            "",
+            "| Fase | Secuencial (s) | CUDA (s) | Speedup |",
+            "|---|---|---|---|",
+        ]
+        for f in (f for f in filas if f["n"] == n):
+            if f["fase"] == LIMITE_AMDAHL:
+                lineas.append(f"| *{f['fase']}* | {f['seq']:.4f} | {f['cuda']:.4f} | *{f['speedup']:.2f}×* |")
+            else:
+                negrita = "**" if f["fase"] == "Total" else ""
+                lineas.append(f"| {negrita}{f['fase']}{negrita} | {f['seq']:.4f} | {f['cuda']:.4f} | "
+                              f"{negrita}{f['speedup']:.2f}×{negrita} |")
+        lineas.append("")
+
+    # Desglose de la versión CUDA con transferencias
+    lineas += ["**Desglose de la versión CUDA (promedio ± desviación, s)**", "",
+               "| N | " + " | ".join(ETIQUETAS_FASES[f] for f in FASES) + " |",
+               "|---|" + "---|" * len(FASES)]
+    for c in res_cuda:
+        celdas = [f"{c[f'{f}_prom']:.4f} ± {c[f'{f}_desv']:.4f}" for f in FASES]
+        lineas.append(f"| {c['n']:,} | " + " | ".join(celdas) + " |")
+    return "\n".join(lineas) + "\n"
+
+
+def comparar(res_seq, res_cuda, plt):
+    """Paso 6: speedup por fase, tabla comparativa y gráficas seq vs CUDA."""
+    import numpy as np
+    from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
+
+    filas = calcular_speedup(res_seq, res_cuda)
+    if not filas:
+        print("Los CSV de secuencial y CUDA no tienen ningún N en común: no se puede comparar.")
+        return
+
+    ruta_csv = os.path.join(CARPETA_RESULTADOS, "speedup.csv")
+    with open(ruta_csv, "w", newline="") as f:
+        escritor = csv.DictWriter(f, fieldnames=["n", "fase", "seq", "cuda", "speedup"])
+        escritor.writeheader()
+        escritor.writerows(filas)
+
+    ruta_md = os.path.join(CARPETA_RESULTADOS, "tabla_comparativa.md")
+    with open(ruta_md, "w") as f:
+        f.write(tabla_comparativa_markdown(filas, res_cuda))
+
+    tamanos = sorted({f["n"] for f in filas})
+    etiquetas = [f"{n:,}" for n in tamanos]
+    x = np.arange(len(tamanos))
+
+    def valor(n, fase, campo):
+        return next(f[campo] for f in filas if f["n"] == n and f["fase"] == fase)
+
+    # 1) Tiempo total secuencial vs CUDA (escala log: pueden diferir en órdenes de magnitud)
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    ancho = 0.38
+    t_seq = [valor(n, "Total", "seq") for n in tamanos]
+    t_cuda = [valor(n, "Total", "cuda") for n in tamanos]
+    b1 = ax.bar(x - ancho / 2, t_seq, ancho, label="Secuencial", color="#8E8E93")
+    b2 = ax.bar(x + ancho / 2, t_cuda, ancho, label="CUDA", color="#2E86DE")
+    ax.bar_label(b1, labels=[f"{t:.3f} s" for t in t_seq], fontsize=8)
+    ax.bar_label(b2, labels=[f"{t:.3f} s" for t in t_cuda], fontsize=8)
+    ax.set_yscale("log")
+    ax.yaxis.set_major_locator(LogLocator(base=10, subs=(1, 2, 5)))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+    ax.yaxis.set_minor_formatter(NullFormatter())
+    ax.set_xticks(x, etiquetas)
+    ax.set_title("Tiempo total: secuencial vs CUDA")
+    ax.set_xlabel("N (cantidad de temperaturas)")
+    ax.set_ylabel("Tiempo (s, escala logarítmica)")
+    ax.legend()
+    ax.grid(axis="y", alpha=0.3, which="both")
+    fig.tight_layout()
+    fig.savefig(os.path.join(CARPETA_FIGURAS, "comparativa_total.png"), dpi=120)
+    plt.close(fig)
+
+    # 2) Speedup por fase para cada N (línea en 1×: debajo, CUDA es más lento)
+    fases_graf = [e for e, _, _ in FILAS_SPEEDUP]
+    colores = ["#8E8E93", "#2E86DE", "#F39C12", "#9B59B6", "#27AE60", "#E74C3C"]
+    fig, ax = plt.subplots(figsize=(11, 5.5))
+    ancho = 0.8 / len(fases_graf)
+    for k, (fase, color) in enumerate(zip(fases_graf, colores)):
+        valores = [valor(n, fase, "speedup") for n in tamanos]
+        barras = ax.bar(x + (k - (len(fases_graf) - 1) / 2) * ancho, valores, ancho, label=fase, color=color)
+        ax.bar_label(barras, labels=[f"{v:.1f}×" if v >= 1 else f"{v:.2f}×" for v in valores],
+                     fontsize=7, rotation=90, padding=2)
+    ax.axhline(1, color="black", linewidth=1, linestyle="--")
+    ax.set_yscale("log")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}×"))
+    ax.set_xticks(x, etiquetas)
+    ax.set_title("Speedup por fase (secuencial / CUDA)")
+    ax.set_xlabel("N (cantidad de temperaturas)")
+    ax.set_ylabel("Speedup (escala logarítmica)")
+    ax.legend(fontsize=8, ncol=3, loc="upper left")
+    ax.grid(axis="y", alpha=0.3, which="both")
+    ax.margins(y=0.25)
+    fig.tight_layout()
+    fig.savefig(os.path.join(CARPETA_FIGURAS, "speedup_por_fase.png"), dpi=120)
+    plt.close(fig)
+
+    # 3) En qué se va el tiempo de la versión CUDA (incluye transferencias)
+    por_n = {c["n"]: c for c in res_cuda}
+    fases_cuda = ["preparacion", "h2d", "ordenamiento", "histograma", "d2h", "escritura"]
+    colores_cuda = ["#8E8E93", "#C0392B", "#2E86DE", "#F39C12", "#E67E22", "#27AE60"]
+    fig, ax = plt.subplots(figsize=(10.5, 5.5))
+    base = np.zeros(len(tamanos))
+    series = [(ETIQUETAS_FASES[f], c, [por_n[n][f"{f}_prom"] for n in tamanos])
+              for f, c in zip(fases_cuda, colores_cuda)]
+    # Lo que el total mide y ninguna fase cubre (p. ej. leer min/max, sincronizar)
+    otros = [max(0.0, por_n[n]["total_prom"] - sum(por_n[n][f"{f}_prom"] for f in fases_cuda)) for n in tamanos]
+    series.append(("Otros (sin medir)", "#D5D8DC", otros))
+    for etiqueta, color, tiempos in series:
+        valores = np.array([100 * t / por_n[n]["total_prom"] for t, n in zip(tiempos, tamanos)])
+        ax.bar(etiquetas, valores, bottom=base, color=color, label=etiqueta)
+        for i, (b, v) in enumerate(zip(base, valores)):
+            if v >= 4:
+                ax.text(i, b + v / 2, f"{v:.0f} %", ha="center", va="center",
+                        color="black" if color == "#D5D8DC" else "white", fontsize=9)
+        base += valores
+    ax.set_title("Versión CUDA: proporción del tiempo total por fase")
+    ax.set_xlabel("N (cantidad de temperaturas)")
+    ax.set_ylabel("% del tiempo total")
+    ax.set_ylim(0, 100)
+    ax.legend(fontsize=8, loc="center left", bbox_to_anchor=(1.01, 0.5))
+    fig.tight_layout()
+    fig.savefig(os.path.join(CARPETA_FIGURAS, "cuda_porcentaje_por_fase.png"), dpi=120)
+    plt.close(fig)
+
+    print(f"Speedup guardado en {ruta_csv} y {ruta_md}")
+    print(f"Figuras de comparación guardadas en {CARPETA_FIGURAS}/")
+    for n in tamanos:
+        print(f"  N = {n:>10,}: speedup total {valor(n, 'Total', 'speedup'):.2f}×  "
+              f"(límite de Amdahl {valor(n, LIMITE_AMDAHL, 'speedup'):.2f}×)")
 
 
 # ---------------------------------------------------------------- main
