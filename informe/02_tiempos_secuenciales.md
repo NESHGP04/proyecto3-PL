@@ -1,4 +1,4 @@
-# 2. Medición del tiempo de ejecución secuencial
+# Paso 2. Medición del tiempo de ejecución secuencial
 
 > Responsable: Marinés García · Código: `secuencial/histograma_seq.py`, `benchmarks/run_benchmarks.py`
 > Datos: `resultados/tiempos_secuencial.csv` (crudos), `resultados/resumen_secuencial.csv`, `resultados/entorno_secuencial.json`
