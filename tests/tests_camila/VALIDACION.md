@@ -1,6 +1,8 @@
 # Validación de la contribución de Camila
 
-Fecha: 14 de noviembre de 2026.
+Fecha de actualización: 16 de noviembre de 2026.
+Resultado: 10 pruebas aprobadas, sin errores ni omisiones.
+Duración de la suite: 9.463 segundos; no corresponde a un benchmark.
 
 ## Ejecución en Google Colab
 
@@ -29,7 +31,7 @@ del algoritmo ni permite calcular speedup.
 | Histograma CUDA con datos vacíos, constantes, extremos y fronteras | Aprobada |
 | Histograma CUDA con N = 1 025 y reinicialización entre llamadas | Aprobada |
 | Grid-stride con 2 bloques de 32 hilos y N = 2 049 | Aprobada |
-| Comparación contra el histograma secuencial del equipo | Omitida: la función secuencial todavía está pendiente |
+| Comparación contra el histograma secuencial del equipo | Aprobada |
 
 La tabla desglosa comprobaciones realizadas dentro de las 10 pruebas;
 cada fila no representa necesariamente una prueba independiente.
@@ -45,16 +47,6 @@ por lanzar grids pequeños.
 
 Estos avisos no causaron fallos. Las pruebas utilizan pocos datos para
 verificar casos específicos y no buscan aprovechar toda la GPU.
-
-## Validación pendiente
-
-Cuando Marinés complete secuencial.histograma_seq.histograma,
-se debe repetir:
-
-python -m tests.tests_camila.test_camila
-
-La comparación actualmente omitida deberá aprobarse antes de realizar
-los benchmarks definitivos del equipo.
 
 ## Límite del alcance
 
