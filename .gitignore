@@ -7,3 +7,6 @@ __pycache__/
 # Salidas grandes que se regeneran (los CSV de tiempos SÍ se suben)
 resultados/salida_*/
 original_c/histograma
+
+# Informe armado (se regenera con informe/armar_informe.py; se entrega el PDF)
+informe/Informe_Proyecto3.html

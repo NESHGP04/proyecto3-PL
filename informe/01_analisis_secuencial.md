@@ -1,4 +1,4 @@
-# 1. Análisis de la solución secuencial existente
+# Paso 1. Análisis de la solución secuencial existente
 
 > Responsable: Marinés García · Código analizado: `original_c/histograma.c` (Evaluación Corta 2)
 > y su traducción a Python `secuencial/histograma_seq.py`, que es la línea base del proyecto.
