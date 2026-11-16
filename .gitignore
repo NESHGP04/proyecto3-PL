@@ -5,5 +5,5 @@ __pycache__/
 .venv/
 
 # Salidas grandes que se regeneran (los CSV de tiempos SÍ se suben)
-resultados/temperaturas_ordenadas.csv
+resultados/salida_*/
 original_c/histograma

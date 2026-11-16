@@ -1,0 +1,10 @@
+{
+  "fecha": "2026-11-13 15:00:00",
+  "modo": "seq",
+  "python": "3.13.16",
+  "sistema": "Linux-6.6.159+-x86_64-with-glibc2.39",
+  "procesador": "x86_64",
+  "nucleos_logicos": 2,
+  "nucleos_fisicos": 1,
+  "ram_gb": 13.6
+}
