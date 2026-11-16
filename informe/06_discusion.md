@@ -104,7 +104,7 @@ muchos datos a la vez (modelo SIMT). Las dos operaciones pesadas encajan en ese 
 al dispositivo (4 MB para N = 10⁶ en `float32`), se ordena, se calcula el histograma y solo
 regresan el arreglo ordenado y 100 contadores. Las ⌈log₂N⌉ = 20 pasadas del ordenamiento no
 generan transferencias intermedias. Por eso las transferencias pesan poco frente al cálculo:
-**0.0043 s contra 0.2905 s** en la GPU con N = 10⁶ (las transferencias representan apenas el 1.46 % del tiempo en GPU).
+**0.0046 s contra 0.2945 s** en la GPU con N = 10⁶ (las transferencias representan apenas el 1.54 % del tiempo en GPU).
 
 **4. Diferencia de hardware.** La máquina de Colab tiene **1 núcleo físico** de CPU (2 lógicos),
 mientras que la T4 tiene 2,560 núcleos CUDA. Para trabajo masivamente paralelo, la GPU tiene
@@ -125,7 +125,7 @@ S = 1 / (1 − p), donde p es la fracción del tiempo secuencial que ocupa el c�
 Con N = 10⁴, el 89 % del tiempo es escritura de archivos, así que ni una GPU infinitamente rápida
 mejoraría más de 12 %. La versión paralela también acelera la escritura (con `multiprocessing`),
 así que su límite real se calcula con los tiempos de CPU que efectivamente midió:
-**6.23×** con N = 10⁶. El speedup total obtenido fue **4.86×**.
+**5.70×** con N = 10⁶. El speedup total obtenido fue **4.52×**.
 
 **2. Costos fijos que no dependen de N.** Antes de calcular nada, la GPU necesita:
 
@@ -150,8 +150,8 @@ los segmentos y reduce a la mitad el número de fusiones independientes. Con N =
 Además, cada fusión tiene ramas que dependen de los datos (¿el siguiente elemento viene de la
 mitad izquierda o de la derecha?), lo que provoca **divergencia dentro del warp**. Y cada hilo
 lee sus propios segmentos, separados en memoria, por lo que los accesos **no se combinan
-(coalescing)**. Por eso el speedup del ordenamiento (**19.01×**) es
-menor que el del histograma (**376.49×**), que no tiene estos problemas.
+(coalescing)**. Por eso el speedup del ordenamiento (**18.75×**) es
+menor que el del histograma (**326.36×**), que no tiene estos problemas.
 
 **4. Contención en los contadores del histograma.** Con datos uniformes, los hilos de un bloque
 reparten sus sumas entre solo 100 cubetas, así que varias sumas atómicas caen en la misma cubeta
@@ -169,7 +169,7 @@ con más cálculo en doble precisión sería una limitación importante.
 disponibilidad garantizada, y la CPU tiene un solo núcleo físico. Esto también limita la fase de
 CPU: `multiprocessing` solo puede usar 2 hilos sobre el mismo núcleo, así que la preparación y la
 escritura casi no se aceleran. La preparación incluso puede volverse más lenta por el costo de
-crear procesos (**0.16×** con N = 10⁶).
+crear procesos (**0.14×** con N = 10⁶).
 
 **7. Complejidad de desarrollo.** El código CUDA exige pensar en hilos, bloques, barreras y
 condiciones de carrera. La recursión del MergeSort original no se traslada bien a la GPU (cada
@@ -181,7 +181,7 @@ se validó contra la versión secuencial antes de medir tiempos.
 ### Conclusión
 
 CUDA **se justifica cuando N es grande y el cálculo domina el tiempo total**: con N = 10⁶ el
-cálculo es el 87.4 % del tiempo secuencial y la GPU lo reduce de 5.74 s a **0.2949 s** (19.47× de speedup en cómputo + transferencias). **No se justifica con N pequeño**: con N = 10⁴ el cuello de botella es la
+cálculo es el 87.4 % del tiempo secuencial y la GPU lo reduce de 5.74 s a **0.2992 s** (19.19× de speedup en cómputo + transferencias). **No se justifica con N pequeño**: con N = 10⁴ el cuello de botella es la
 escritura de archivos, que se queda en la CPU, y el speedup máximo posible es apenas 1.12×. En
 general, el beneficio de CUDA depende de qué fracción del programa es paralelizable (Amdahl), de
 cuánto cuesta mover los datos y de qué tan bien se adapta el algoritmo al modelo SIMT de la GPU.

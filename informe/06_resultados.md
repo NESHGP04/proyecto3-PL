@@ -56,20 +56,20 @@ ninguna fase cubre (por ejemplo, leer el mínimo y el máximo o sincronizar con 
 
 | N | Secuencial (s) | CUDA (s) | Speedup total | Límite de Amdahl |
 |---|---|---|---|---|
-| 10,000 | 0.3436 | 0.3810 | 0.90× | 0.93× |
-| 100,000 | 0.7303 | 0.4208 | 1.74× | 2.06× |
-| 1,000,000 | 6.5672 | 1.3499 | **4.86×** | 6.23× |
+| 10,000 | 0.3436 | 0.4903 | 0.70× | 0.72× |
+| 100,000 | 0.7303 | 0.4911 | 1.49× | 1.72× |
+| 1,000,000 | 6.5672 | 1.4532 | **4.52×** | 5.70× |
 
-A partir de $N = 100,000$, la versión CUDA es significativamente más rápida que la secuencial (1.74×). Con $N = 1,000,000$, la aceleración alcanza **4.86×**, reduciendo el tiempo total de 6.57 s a solo 1.35 s. Este resultado se acerca notablemente al límite teórico de Amdahl (6.23×), el cual asume que la GPU tardara 0 segundos.
+A partir de $N = 100,000$, la versión CUDA es significativamente más rápida que la secuencial (1.49×). Con $N = 1,000,000$, la aceleración alcanza **4.52×**, reduciendo el tiempo total de 6.57 s a 1.45 s. Este resultado se acerca notablemente al límite teórico de Amdahl (5.70×), el cual asume que la GPU tardara 0 segundos.
 
 **Por fase**, con N = 10⁶:
 
-- **Ordenamiento:** pasó de 5.5106 s a 0.2899 s (**19.01×**). Es la fase que más tiempo ahorra en términos absolutos (más de 5.22 segundos de ahorro), ya que representaba el 83.9 % del tiempo secuencial.
-- **Histograma:** pasó de 0.2313 s a 0.0006 s (**376.49×**). El histograma acelera casi 20 veces más que el ordenamiento debido a que no tiene dependencias entre pasadas ni divergencia de hilos, explotando al máximo la memoria compartida por bloque.
-- **Transferencias:** H→D tardó 0.0019 s y D→H tardó 0.0024 s (total 0.0043 s), representando apenas el **1.46 %** del tiempo total de la GPU. Las transferencias son despreciables frente al inmenso ahorro de cálculo.
-- **Preparación:** 0.16× (pasó de 0.0099 s a 0.0631 s). Crear el `Pool` de procesos y coordinar memoria compartida en CPU añade un costo fijo que supera la generación secuencial en un solo hilo.
-- **Escritura:** 0.82× (pasó de 0.8153 s a 0.9911 s). Con 1 núcleo físico en Colab (2 vCPU), `multiprocessing` compite por los mismos ciclos de reloj, por lo que la ganancia es limitada por el hardware del host.
+- **Ordenamiento:** pasó de 5.5106 s a 0.2938 s (**18.75×**). Es la fase que más tiempo ahorra en términos absolutos (más de 5.21 segundos de ahorro), ya que representaba el 83.9 % del tiempo secuencial.
+- **Histograma:** pasó de 0.2313 s a 0.0007 s (**326.36×**). El histograma acelera más de 17 veces más que el ordenamiento debido a que no tiene dependencias entre pasadas ni divergencia de hilos, explotando al máximo la memoria compartida por bloque.
+- **Transferencias:** H→D tardó 0.0020 s y D→H tardó 0.0026 s (total 0.0046 s), representando apenas el **1.54 %** del tiempo total de la GPU. Las transferencias son despreciables frente al inmenso ahorro de cálculo.
+- **Preparación:** 0.14× (pasó de 0.0099 s a 0.0700 s). Crear el `Pool` de procesos y coordinar memoria compartida en CPU añade un costo fijo que supera la generación secuencial en un solo hilo.
+- **Escritura:** 0.75× (pasó de 0.8153 s a 1.0832 s). Con 1 núcleo físico en Colab (2 vCPU), `multiprocessing` compite por los mismos ciclos de reloj, por lo que la ganancia es limitada por el hardware del host.
 
 ## 6.5 Causas de las diferencias de rendimiento
 
-En resumen, la paralelización con CUDA logró reducir el tiempo del programa completo de 6.57 s a 1.35 s (4.86×) gracias a que el cálculo pesado se ejecutó en miles de hilos de la GPU NVIDIA T4. El MergeSort bottom-up ahorró más de 5.2 segundos, y el histograma con memoria compartida alcanzó una aceleración de 376×. Sin embargo, el speedup global se ve acotado por la Ley de Amdahl debido a las fases de CPU (preparación y escritura de CSV a disco), y para $N$ pequeño ($N = 10^4$) los costos fijos de lanzamiento y procesos superan el beneficio de la GPU.
+En resumen, la paralelización con CUDA logró reducir el tiempo del programa completo de 6.57 s a 1.45 s (4.52×) gracias a que el cálculo pesado se ejecutó en miles de hilos de la GPU NVIDIA T4. El MergeSort bottom-up ahorró más de 5.2 segundos, y el histograma con memoria compartida alcanzó una aceleración de 326×. Sin embargo, el speedup global se ve acotado por la Ley de Amdahl debido a las fases de CPU (preparación y escritura de CSV a disco), y para $N$ pequeño ($N = 10^4$) los costos fijos de lanzamiento y procesos superan el beneficio de la GPU.
