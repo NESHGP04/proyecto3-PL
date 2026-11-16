@@ -1,0 +1,12 @@
+{
+  "fecha": "2026-11-16 22:40:37",
+  "modo": "cuda",
+  "python": "3.13.16",
+  "sistema": "Linux-6.6.159+-x86_64-with-glibc2.39",
+  "procesador": "x86_64",
+  "nucleos_logicos": 2,
+  "nucleos_fisicos": 1,
+  "ram_gb": 13.6,
+  "gpu": "Tesla T4",
+  "compute_capability": "7.5"
+}
