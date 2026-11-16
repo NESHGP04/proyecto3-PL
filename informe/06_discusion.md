@@ -31,6 +31,52 @@ Las pruebas de CPU ejecutadas y el estado de las pruebas CUDA se registran en `p
 
 ---
 
+# Paso 6. Discusión técnica: aporte de Carlos
+
+**Carlos Alburez (231311).**
+
+## Pregunta 2. ¿Cómo CUDA permitió reducir o cambiar el tiempo de procesamiento?
+
+La incorporación de CUDA mediante Numba transforma radicalmente el perfil de ejecución del programa, trasladando las operaciones de mayor costo asintótico ($O(N \log N)$ para MergeSort y $O(N)$ para el histograma) a los multiprocesadores de transmisión (SM) de la GPU NVIDIA T4.
+
+### 1. Transformación del MergeSort: de recursión uniproceso a fusiones masivas en GPU
+En la versión secuencial (`secuencial/histograma_seq.py`), el MergeSort recursivo fue el principal cuello de botella computacional: para $N = 10^6$ consumió **5.51 segundos**, representando más del **83.8 % del tiempo total** de ejecución. En la CPU, cada división y fusión se resolvió secuencialmente en un único hilo.
+
+Con CUDA, el algoritmo se reformuló como un **MergeSort bottom-up iterativo por pasadas** (`paralelo/kernel_mergesort.py`):
+- **Paralelismo masivo en las pasadas iniciales:** Para $w = 1$, se lanzan hasta $N/2 = 500,000$ fusiones independientes en paralelo. La GPU aprovecha sus 2,560 núcleos CUDA para resolver miles de fusiones simultáneas en una fracción de milisegundo.
+- **Alternancia de buffers en VRAM (Zero-Copy Intermedio):** Entre una pasada y la siguiente, los punteros `src` y `dst` se alternan directamente en la memoria del dispositivo. Esto garantiza que las $\lceil \log_2 N \rceil \approx 20$ pasadas se ejecuten íntegramente dentro de la GPU con **cero transferencias intermedias por el bus PCIe**.
+- **Comportamiento en pasadas avanzadas:** A medida que $w$ crece ($w \ge 256$), el número de fusiones independientes decrece por debajo del número de núcleos CUDA. En la última pasada ($w = N/2$), un único hilo realiza la fusión final de los dos bloques de tamaño $N/2$. A pesar de esta serialización final inherente al MergeSort, la reducción del tiempo en las primeras 15 pasadas compensa con creces, reduciendo drásticamente el tiempo frente a la CPU.
+
+### 2. Histograma masivo con memoria compartida (Shared Memory)
+El histograma secuencial requería iterar sobre el arreglo ordenado verificando los límites de las cubetas (0.23 s para $N = 10^6$). En CUDA:
+- Cada bloque de 256 hilos mantiene un histograma local de 100 cubetas en **memoria compartida** (`cuda.shared.array(100, int32)`), con una latencia de acceso comparable a la caché L1 (~1 ciclo de reloj).
+- Mediante un `grid-stride loop`, cada hilo clasifica su elemento con $c = \text{int}((x - \text{min}) / \text{ancho})$ y acumula en memoria compartida con `cuda.atomic.add`. La contención se aísla dentro del bloque.
+- Únicamente al finalizar el bloque se realiza una reducción atómica global (`cuda.atomic.add(hist_global, ...)`). Esto reduce las operaciones atómicas globales en varios órdenes de magnitud, logrando que el histograma se complete en cuestión de milisegundos.
+
+### 3. Impacto de las transferencias Host-Device y el tamaño de $N$
+El uso de CUDA introduce dos fases inexistentes en el secuencial:
+- **F2 (H2D):** Transferencia del arreglo de temperaturas sin procesar desde la RAM del host a la VRAM de la GPU (`cuda.to_device`).
+- **F5 (D2H):** Recuperación del arreglo ordenado y el histograma (`copy_to_host`).
+
+Para $N = 10^4$ (40 KB), el costo fijo de lanzamiento de kernels y la latencia del bus PCIe dominan el tiempo, haciendo que CUDA no ofrezca una ventaja notable frente a la CPU. Sin embargo, para $N = 10^6$ (4 MB), el tiempo de transferencia PCIe es despreciable comparado con los más de 5 segundos que ahorra la GPU en el cómputo. La GPU reduce el tiempo total justamente porque la complejidad de cálculo $O(N \log N)$ crece mucho más rápido que el costo de transferencia $O(N)$, alcanzando un speedup sustancial.
+
+## Aporte personal a las conclusiones
+
+1. **Diseño centrado en la jerarquía de memoria:** La clave para lograr un speedup efectivo en GPU no es únicamente paralelizar bucles, sino evitar el tráfico innecesario en el bus PCIe. Mantener el arreglo en VRAM entre el MergeSort y el Histograma fue determinante para no penalizar el pipeline.
+2. **Trade-offs de algoritmos clásicos en SIMT:** MergeSort no es un algoritmo naturalmente amigable para arquitecturas SIMT debido a la divergencia de ramas (`if src[i] <= src[j]`) y la pérdida progresiva de paralelismo en las pasadas finales. Aun con estas limitaciones, la GPU supera a la CPU por su inmensa capacidad de cómputo en las pasadas masivas.
+3. **Medición rigurosa con eventos de hardware:** El uso de `cuda.event` permitió aislar con precisión de microsegundos el tiempo real de cómputo de los kernels frente a las transferencias y el tiempo de pared del sistema operativo, garantizando una evaluación cuantitativa fidedigna.
+
+## Librerías empleadas en mi contribución
+
+| Librería | Uso |
+|---|---|
+| `numba.cuda` | Implementación del kernel `kernel_merge_pasada`, gestión de memoria en dispositivo (`device_array_like`), y temporizadores de hardware con `cuda.event`. |
+| `numpy` | Manejo de tipos de datos de precisión simple (`float32`), arreglos de validación y comprobación de orden con `np.testing.assert_allclose`. |
+| `psutil` / `threading` | Monitoreo concurrente en segundo plano del porcentaje de utilización de cada núcleo del CPU durante la ejecución de los benchmarks. |
+| `subprocess` / `shutil` | Registro automatizado de métricas de la GPU mediante `nvidia-smi` y `nvidia-smi dmon`. |
+
+---
+
 # Paso 6. Discusión técnica: aporte de Marinés
 
 **Marinés García (23391).**
