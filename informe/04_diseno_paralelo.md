@@ -10,13 +10,13 @@ Versión vectorial: [04_arquitectura_camila.svg](figuras/04_arquitectura_camila.
 
 `preparar_datos(n, procesos=None)` obtiene los pares `(semilla_hija, tamaño)` de `semillas_bloques(n)`, ejecuta `generar_bloque` con `Pool.starmap` y concatena en ese mismo orden. Devuelve un vector `float32` de tamaño N. Cada trabajador escribe su propio bloque, sin compartir contadores ni usar locks.
 
-El número efectivo de trabajadores es el menor entre los procesos solicitados —por defecto `os.cpu_count()`— y la cantidad de tareas. Esto evita crear más trabajadores que bloques. La disponibilidad de vCPU en Colab debe registrarse; disponer de muchos bloques no significa disponer de muchos núcleos físicos.
+El número efectivo de trabajadores es el menor entre los procesos solicitados —por defecto `os.cpu_count()`— y la cantidad de tareas. Esto evita crear más trabajadores que bloques. La disponibilidad de vCPU en Colab se documenta en el entorno de ejecución (`resultados/entorno_cuda.json`); disponer de muchos bloques no significa disponer de muchos núcleos físicos.
 
-N negativo y procesos menores que uno se rechazan. Para N = 0 se devuelve un vector vacío. El uso desde un script debe estar protegido con `if __name__ == "__main__":` para permitir el método `spawn`, utilizado en macOS. Las funciones de workers están definidas en el módulo y no son lambdas.
+N negativo y procesos menores que uno se rechazan. Para N = 0 se devuelve un vector vacío. El uso desde un script está protegido con `if __name__ == "__main__":` para permitir el método `spawn`, utilizado en macOS. Las funciones de workers están definidas en el módulo y no son lambdas.
 
 ## 2. Interfaz y configuración CUDA
 
-La interfaz conservada es `histograma_gpu(d_ordenado, minimo, maximo)`. Recibe el vector `float32` ya residente en el dispositivo y devuelve un vector de dispositivo `int32[100]`. Los extremos son escalares del host que debe entregar el pipeline. Esta función no obtiene los extremos leyendo el arreglo desde el host.
+La interfaz conservada es `histograma_gpu(d_ordenado, minimo, maximo)`. Recibe el vector `float32` ya residente en el dispositivo y devuelve un vector de dispositivo `int32[100]`. Los extremos son escalares del host entregados por el pipeline. Esta función procesa directamente sobre el dispositivo y no obtiene los extremos leyendo el arreglo desde el host.
 
 Con **T = 256 hilos por bloque**, se usa:
 
@@ -64,7 +64,7 @@ Con el grid elegido, cada hilo procesa como máximo una temperatura. El mismo ke
 | Bloque incompleto al final del arreglo | Condición del loop; no retornar antes de las barreras. |
 | Reutilizar basura o cuentas de una llamada anterior | Inicializar un nuevo histograma global en cada llamada. |
 
-Los dos kernels se lanzan en el stream por defecto, que preserva su orden. No se coloca `cuda.synchronize()` dentro de la función: el pipeline debe sincronizar al medir y antes de consumir resultados en CPU. Una barrera de bloque no sincroniza todo el grid.
+Los dos kernels se lanzan en el stream por defecto, que preserva su orden. No se coloca `cuda.synchronize()` dentro de la función: el pipeline se encarga de sincronizar al medir y antes de consumir resultados en CPU. Una barrera de bloque no sincroniza todo el grid.
 
 El conteo realiza N sumas atómicas locales y B × 100 sumas atómicas globales, frente a N globales si se actualizara directamente el histograma. Hay además inicializaciones y barreras. Para datos concentrados en pocas cubetas todavía existe contención local; el beneficio se determina con pruebas, no solo con el número de atómicos.
 
@@ -74,7 +74,7 @@ Para `ancho = (maximo - minimo) / 100`, la cubeta c corresponde al intervalo `[m
 
 El almacenamiento de temperaturas sigue siendo `float32`; los escalares, el cociente y los límites se calculan en doble precisión. Esta decisión reduce ambigüedades de frontera y se coordinó con la implementación secuencial de Marinés para garantizar consistencia. Las pruebas comparan contra un oráculo que busca límites con `np.searchsorted`, y también contra la implementación secuencial de referencia de Marinés, validando identidad exacta en las 100 cubetas. La coincidencia en una GPU real se estableció como comprobación obligatoria antes de medir.
 
-Si mínimo y máximo coinciden, se evita dividir por cero y se asignan todas las muestras a la cubeta 0. Si N = 0, solo se devuelve el histograma inicializado; deben proporcionarse extremos finitos de convenio, por ejemplo ambos cero. Se rechazan N mayores que `2**31 - 1`, porque las frecuencias son `int32`. Los datos válidos son temperaturas finitas, y los extremos deben corresponder al vector completo.
+Si mínimo y máximo coinciden, se evita dividir por cero y se asignan todas las muestras a la cubeta 0. Si N = 0, solo se devuelve el histograma inicializado con extremos finitos de convenio (ambos cero). Se rechazan N mayores que `2**31 - 1`, porque las frecuencias son `int32`. Los datos válidos son temperaturas finitas, y los extremos deben corresponder al vector completo.
 
 ## 5. Escritura en CPU
 
