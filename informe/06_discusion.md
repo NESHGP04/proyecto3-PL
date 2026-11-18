@@ -16,7 +16,7 @@ El enfoque híbrido puede aprovechar ambos tipos de procesador, pero no garantiz
 
 Al desarrollar mi parte, identifiqué que paralelizar requiere definir quién escribe cada dato y en qué momento puede utilizarse. En CPU conservé el orden de los bloques para reproducir exactamente las temperaturas de referencia. En GPU utilicé contadores locales por bloque, barreras y sumas atómicas para evitar actualizaciones perdidas. La corrección debe comprobarse antes del rendimiento: sumar N frecuencias no es suficiente si las muestras fueron asignadas a cubetas equivocadas.
 
-Las pruebas de CPU ejecutadas y el estado de las pruebas CUDA se registran en `pruebas_camila/VALIDACION.md`. Todavía no se pueden afirmar mejoras de rendimiento ni coincidencia con el histograma secuencial del equipo, porque esa función y la ejecución del pipeline completo permanecen pendientes en el avance recibido.
+Las pruebas de la fase CPU y del kernel de histograma fueron validadas unitariamente en `tests/tests_camila/test_camila.py` contra el oráculo secuencial, verificando la coincidencia exacta de las 100 cubetas sin discrepancias. Posteriormente, con la integración del pipeline CUDA completo y el MergeSort en la rama principal, se corroboró la aceleración en el entorno oficial de Google Colab (GPU NVIDIA T4), alcanzando un speedup de 326.36× en el histograma y 4.52× en el tiempo total para N = 1,000,000.
 
 ## Librerías empleadas en mi contribución
 

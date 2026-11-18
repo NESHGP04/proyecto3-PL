@@ -36,7 +36,7 @@ El histograma evita una barrera por temperatura. Cada bloque ejecuta solamente d
 - Verificar la suma de frecuencias y las cubetas antes de medir. No basta con que `sum(hist) == N`.
 - Descartar la corrida de compilación JIT según el plan. La simulación de CUDA no sirve para medir speedup.
 
-No se presentan tiempos ni mejoras porcentuales porque todavía no se han ejecutado los benchmarks del equipo.
+El análisis cuantitativo de tiempos, mediciones experimentales y el cálculo de speedup por fase se presentan de forma integral en el Paso 6, tras la ejecución de los benchmarks oficiales del pipeline completo en Google Colab con la GPU NVIDIA T4.
 
 ## Referencias técnicas
 
