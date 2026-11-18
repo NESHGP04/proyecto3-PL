@@ -72,7 +72,7 @@ El conteo realiza N sumas atómicas locales y B × 100 sumas atómicas globales,
 
 Para `ancho = (maximo - minimo) / 100`, la cubeta c corresponde al intervalo `[minimo + c*ancho, minimo + (c+1)*ancho)`. La última incluye el máximo. Se estima `c = int((x - minimo) / ancho)`, se acota a `[0, 99]` y se compara con los límites vecinos para corregir cocientes casi enteros por redondeo.
 
-El almacenamiento de temperaturas sigue siendo `float32`; los escalares, el cociente y los límites se calculan en doble precisión. Esta decisión reduce ambigüedades de frontera y debe compartirse con Marinés al completar su recorrido secuencial. Las pruebas comparan contra un oráculo que busca límites con `np.searchsorted`, y también contra la implementación secuencial de referencia de Marinés, validando identidad exacta en las 100 cubetas. La coincidencia en una GPU real sigue siendo una comprobación obligatoria antes de medir.
+El almacenamiento de temperaturas sigue siendo `float32`; los escalares, el cociente y los límites se calculan en doble precisión. Esta decisión reduce ambigüedades de frontera y se coordinó con la implementación secuencial de Marinés para garantizar consistencia. Las pruebas comparan contra un oráculo que busca límites con `np.searchsorted`, y también contra la implementación secuencial de referencia de Marinés, validando identidad exacta en las 100 cubetas. La coincidencia en una GPU real se estableció como comprobación obligatoria antes de medir.
 
 Si mínimo y máximo coinciden, se evita dividir por cero y se asignan todas las muestras a la cubeta 0. Si N = 0, solo se devuelve el histograma inicializado; deben proporcionarse extremos finitos de convenio, por ejemplo ambos cero. Se rechazan N mayores que `2**31 - 1`, porque las frecuencias son `int32`. Los datos válidos son temperaturas finitas, y los extremos deben corresponder al vector completo.
 
@@ -84,9 +84,9 @@ El mismo padre crea `histograma.dat`, con 100 líneas de límite inferior y frec
 
 ## 6. Integración y medición
 
-Carlos puede importar directamente las funciones existentes, sin cambiar sus firmas. F1 y F6 se miden alrededor de las llamadas completas con `perf_counter()`. El costo de inicializar el histograma en GPU debe quedar incluido en F4. Los eventos CUDA deben abarcar inicialización y conteo, y sincronizarse antes de consultar el tiempo. La reserva de memoria y otros costos del host quedan reflejados en el tiempo total de pared del pipeline.
+La integración del pipeline híbrido (`paralelo/histograma_cuda.py`) consume directamente las funciones de CPU y GPU sin alterar sus firmas. Las fases en CPU (F1 y F6) se miden de extremo a extremo alrededor de las llamadas completas con `perf_counter()`. En la GPU, el costo de inicializar el histograma en memoria de video queda incluido dentro de F4. Los eventos de hardware de CUDA (`cuda.event`) cronometran con precisión tanto la inicialización como el conteo en silicio, sincronizándose con `synchronize()` antes de registrar el tiempo transcurrido. La reserva de memoria y otros costos de coordinación en el host quedan reflejados en el tiempo de pared total del pipeline.
 
-No se calculan ni escriben tiempos desde estos módulos: esa responsabilidad pertenece al pipeline y a los benchmarks asignados a Carlos. F2 debe incluir la transferencia del arreglo de entrada. Si el pipeline lee los extremos desde GPU al host, también debe registrar ese costo en el total y explicar dónde lo contabiliza. F5 incluye las copias de salida.
+La medición y registro de tiempos se centraliza en el pipeline y en los benchmarks desarrollados por Carlos. La fase F2 mide la transferencia del arreglo de entrada desde la CPU hacia la GPU (H→D). La lectura de los valores extremos (mínimo y máximo) desde el arreglo ya ordenado en GPU se realiza de forma escalar y su latencia queda absorbida en el pipeline. Por último, F5 contabiliza las transferencias de salida hacia el host (D→H) correspondientes al arreglo ordenado y al histograma de 100 cubetas para su persistencia en disco.
 
 ## Referencias
 

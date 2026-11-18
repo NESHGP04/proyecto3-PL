@@ -7,12 +7,12 @@
 | Operación | Reparto propuesto | Justificación y límites |
 |---|---|---|
 | Generar temperaturas, F1 | CPU: `Pool.starmap(generar_bloque, semillas_bloques(n))` | Cada bloque tiene una semilla propia y no depende de otros. Los trabajadores pueden producirlos simultáneamente. Crear procesos, serializar y concatenar agrega costo; para N pequeño podría ser más lento. |
-| Ordenar, F3 | GPU: fusiones independientes de MergeSort bottom-up, según el diseño de Carlos | Dentro de una pasada las parejas de segmentos no se superponen. La pasada siguiente necesita la anterior. La implementación corresponde a Carlos. |
+| Ordenar, F3 | GPU: fusiones independientes de MergeSort bottom-up (implementado por Carlos) | Dentro de una pasada las parejas de segmentos no se superponen. La pasada siguiente necesita la anterior. |
 | Contar frecuencias, F4 | GPU: un histograma compartido por bloque y suma al global | Cada temperatura puede clasificarse de manera independiente. Los contadores sí se comparten; se protegen con sumas atómicas. |
 | Formatear CSV, F6 | CPU: bloques con `Pool.imap`, manteniendo el orden | Convertir cada temperatura a texto es independiente. Cada trabajador devuelve una cadena y el padre escribe las cadenas en su orden original. |
 | Escribir físicamente el CSV | Un único proceso padre | Evita líneas intercaladas y mantiene los índices. El almacenamiento y el acceso al mismo archivo limitan el paralelismo útil. |
 | Escribir `.dat` y dibujar `.png` | CPU, proceso padre | Solo hay 100 frecuencias. Crear procesos para estas salidas pequeñas agregaría más coordinación que trabajo útil. |
-| Transferir CPU↔GPU | Operaciones del pipeline a cargo de Carlos | Son costos necesarios, no aceleración matemática. F2 y F5 deben estar incluidos en el tiempo total. |
+| Transferir CPU↔GPU | Operaciones del pipeline (implementado por Carlos) | Son costos necesarios, no aceleración matemática. F2 y F5 están incluidos en el tiempo total. |
 
 ## Reparto estático y ejecución dinámica
 
