@@ -29,7 +29,7 @@ En su lugar, se implementó el **MergeSort bottom-up iterativo**:
 1. Se realizan pasadas sucesivas con anchos crecientes de subarreglo $w \in \{1, 2, 4, 8, \dots\}$, duplicando el ancho en cada iteración mientras $w < N$.
 2. En cada pasada, se lanza una cuadrícula de hilos donde cada hilo $t$ es responsable de fusionar dos segmentos contiguos ordenados:
    $$\text{inicio} = t \times (2w), \quad \text{medio} = \min(\text{inicio} + w, N), \quad \text{fin} = \min(\text{inicio} + 2w, N)$$
-3. **Esquema de buffers alternados (Ping-Pong):** Se reserva un único buffer auxiliar `d_aux = cuda.device_array_like(d_datos)` en la GPU. En cada pasada, el kernel lee de `src` y escribe ordenado en `dst`, alternando las referencias (`src, dst = dst, src`) al terminar la pasada. Al completar las $\lceil \log_2 N \rceil$ pasadas, el resultado final queda en la VRAM listo para la siguiente fase, sin asignaciones dinámicas ni transferencias intermedias.
+3. **Esquema de buffers alternados (Ping-Pong):** Se reserva un único buffer auxiliar `d_aux = cuda.device_array_like(d_datos)` en la GPU. En cada pasada, el kernel lee de `src` y escribe ordenado en `dst`, alternando las referencias (`src, dst = dst, src`) al terminar la pasada. Al completar las ⌈log₂ N⌉ pasadas (20 pasadas para N = 1,000,000), el resultado final queda en la VRAM listo para la siguiente fase, sin asignaciones dinámicas ni transferencias intermedias.
 
 ```python
 @cuda.jit

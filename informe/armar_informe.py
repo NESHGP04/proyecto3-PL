@@ -90,7 +90,7 @@ blockquote { margin: 0.6em 0; padding: 4px 12px; border-left: 3px solid var(--li
 @media print { body { padding: 0; max-width: none; } a { color: inherit; } }
 """
 
-MATHJAX = """<script>window.MathJax = { tex: { inlineMath: [['\\\\(', '\\\\)']], displayMath: [['\\\\[', '\\\\]'], ['$$', '$$']] } };</script>
+MATHJAX = """<script>window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\\\(', '\\\\)']], displayMath: [['\\\\[', '\\\\]'], ['$$', '$$']] } };</script>
 <script async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>"""
 
 avisos = []
@@ -134,7 +134,7 @@ def proteger_formulas(texto):
         guardadas.append(m.group(0))
         return f"FORMULA{len(guardadas) - 1}FIN"
 
-    texto = re.sub(r"\\\[.+?\\\]|\\\(.+?\\\)|\$\$.+?\$\$", guardar, texto, flags=re.S)
+    texto = re.sub(r"\\\[.+?\\\]|\\\(.+?\\\)|\$\$.+?\$\$|\$[^$\n]+?\$", guardar, texto, flags=re.S)
     return texto, guardadas
 
 

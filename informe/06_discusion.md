@@ -44,7 +44,7 @@ En la versión secuencial (`secuencial/histograma_seq.py`), el MergeSort recursi
 
 Con CUDA, el algoritmo se reformuló como un **MergeSort bottom-up iterativo por pasadas** (`paralelo/kernel_mergesort.py`):
 - **Paralelismo masivo en las pasadas iniciales:** Para $w = 1$, se lanzan hasta $N/2 = 500,000$ fusiones independientes en paralelo. La GPU aprovecha sus 2,560 núcleos CUDA para resolver miles de fusiones simultáneas en una fracción de milisegundo.
-- **Alternancia de buffers en VRAM (Zero-Copy Intermedio):** Entre una pasada y la siguiente, los punteros `src` y `dst` se alternan directamente en la memoria del dispositivo. Esto garantiza que las $\lceil \log_2 N \rceil \approx 20$ pasadas se ejecuten íntegramente dentro de la GPU con **cero transferencias intermedias por el bus PCIe**.
+- **Alternancia de buffers en VRAM (Zero-Copy Intermedio):** Entre una pasada y la siguiente, los punteros `src` y `dst` se alternan directamente en la memoria del dispositivo. Esto garantiza que las ⌈log₂ N⌉ pasadas (20 pasadas para N = 1,000,000) se ejecuten íntegramente dentro de la GPU con **cero transferencias intermedias por el bus PCIe**.
 - **Comportamiento en pasadas avanzadas:** A medida que $w$ crece ($w \ge 256$), el número de fusiones independientes decrece por debajo del número de núcleos CUDA. En la última pasada ($w = N/2$), un único hilo realiza la fusión final de los dos bloques de tamaño $N/2$. A pesar de esta serialización final inherente al MergeSort, la reducción del tiempo en las primeras 15 pasadas compensa con creces, reduciendo drásticamente el tiempo frente a la CPU.
 
 ### 2. Histograma masivo con memoria compartida (Shared Memory)
